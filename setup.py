@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'koch-ros2-wrapper'
+package_name = 'koch_wrapper'
 
 setup(
     name=package_name,
@@ -13,13 +13,13 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='root',
-    maintainer_email='root@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
-    tests_require=['pytest'],
+    maintainer='pomelo925',
+    maintainer_email='yoseph.huang@gmail.com',
+    description='ROS2 wrapper for Koch robot arm',
+    license='MIT',
     entry_points={
         'console_scripts': [
+            'ctrl_leader_follower = koch_wrapper.ctrl_leader_follower:main',
         ],
     },
 )

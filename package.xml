@@ -1,19 +1,14 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>koch-ros2-wrapper</name>
+  <name>koch_wrapper</name>
   <version>0.0.0</version>
   <description> ROS2 wrapper for Koch Robot Arm </description>
   <maintainer email="yoseph.huang@gmail.com">pomelo925</maintainer>
   <license>MIT</license>
-
+  
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
-
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>
