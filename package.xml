@@ -3,21 +3,19 @@
 <package format="3">
   <name>koch-ros2-wrapper</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="root@todo.todo">root</maintainer>
-  <license>TODO: License declaration</license>
+  <description> ROS2 wrapper for Koch Robot Arm </description>
+  <maintainer email="yoseph.huang@gmail.com">pomelo925</maintainer>
+  <license>MIT</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
-
-  <depend>std_msgs</depend>
-  <depend>geometry_msgs</depend>
+  <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
-  <depend>tf2</depend>
 
-  <test_depend>ament_lint_auto</test_depend>
-  <test_depend>ament_lint_common</test_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
-    <build_type>ament_cmake</build_type>
+    <build_type>ament_python</build_type>
   </export>
 </package>
