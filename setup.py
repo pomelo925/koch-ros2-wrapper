@@ -20,6 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'ctrl_leader_follower = koch_wrapper.ctrl_leader_follower:main',
+            'record = koch_wrapper.record:main',
         ],
     },
 )

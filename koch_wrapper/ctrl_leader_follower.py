@@ -1,165 +1,115 @@
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from lerobot.common.robot_devices.motors.configs import DynamixelMotorsBusConfig
 from lerobot.common.robot_devices.motors.dynamixel import DynamixelMotorsBus
+from lerobot.common.robot_devices.robots.configs import KochRobotConfig
 from lerobot.common.robot_devices.robots.manipulator import ManipulatorRobot
-
-import numpy as np
 import yaml
+from sensor_msgs.msg import JointState
+import numpy as np
 
-class KochLeaderFollower(Node):
+CALIBRATION_FOLDER_PATH = '/ros2-ws/src/koch_wrapper/calibration'
+CONFIG_PATH = '/ros2-ws/src/koch_wrapper/config/leader_follower.yaml'
+PUBLISH_FPS = 50
+SYNC_FPS = 100
+
+class KochRobotNode(Node):
     def __init__(self):
-        super().__init__('leader_follower_control_node')
-        self.get_logger().info('\033[93mLeader-Follower Control Node started\033[0m')
+        super().__init__('koch_robot_node')
+        self.get_logger().info("Initializing Koch Robot Node...")
+        self.config = self.load_config(CONFIG_PATH)
+        self.robot = self.arm_initialize(self.config)
 
-        # Declare the parameter for the config file path
-        self.declare_parameter('config_file', '/ros2-ws/src/koch-ros2-wrapper/config/two_leader_follower.yaml')
-        config_file_path = self.get_parameter('config_file').get_parameter_value().string_value
+        # 建立四個 JointState Publisher
+        self.left_leader_pub = self.create_publisher(JointState, '/left_leader/JointState', 10)
+        self.right_leader_pub = self.create_publisher(JointState, '/right_leader/JointState', 10)
+        self.left_follower_pub = self.create_publisher(JointState, '/left_follower/JointState', 10)
+        self.right_follower_pub = self.create_publisher(JointState, '/right_follower/JointState', 10)
 
-        # Load configuration from the specified YAML file
-        try:
-            with open(config_file_path, 'r') as file:
-                config = yaml.safe_load(file)
-                self.get_logger().info(f'Loaded configuration from {config_file_path}')
-        except Exception as e:
-            self.get_logger().error(f"Failed to load configuration file: {e}")
-            return
+        # 設置定時器以指定的頻率同步位置
+        self.timer = self.create_timer(1.0 / PUBLISH_FPS, self.publish_all_joint_states)
+        self.timer = self.create_timer(1.0 / SYNC_FPS, self.sync_positions)
 
-        # Initialize leader and follower arms
-        self.leader_arms = {}
-        self.follower_arms = {}
-        self.joint_state_publishers = {}
-        self.joint_state_subscribers = {}
+    def load_config(self, file_path):
+        with open(file_path, 'r') as file:
+            return yaml.safe_load(file)
 
-        # Initialize leader arms (publish-only)
-        for arm_config in config['leader_arms']:
-            arm_name = arm_config['name']
-            port = arm_config['port']
-            motors = arm_config['motors']
-            self.get_logger().info(f'Initializing leader arm {arm_name} on port {port}')
+    def arm_initialize(self, config):
+        leader_configs = [DynamixelMotorsBusConfig(port=arm['port'], motors=arm['motors']) for arm in config['leader_arms']]
+        follower_configs = [DynamixelMotorsBusConfig(port=arm['port'], motors=arm['motors']) for arm in config['follower_arms']]
 
-            self.leader_arms[arm_name] = DynamixelMotorsBus(
-                port=port,
-                motors={name: tuple(spec) for name, spec in motors.items()},
-            )
+        leader_arms = [DynamixelMotorsBus(config) for config in leader_configs]
+        follower_arms = [DynamixelMotorsBus(config) for config in follower_configs]
 
-            # Create publisher for leader arm joint states
-            joint_state_topic = f'{arm_name}/joint_states'
-            self.joint_state_publishers[arm_name] = self.create_publisher(JointState, joint_state_topic, 10)
+        for arm in leader_arms + follower_arms:
+            arm.connect()
 
-        # Initialize follower arms (publish and subscribe)
-        for arm_config in config['follower_arms']:
-            arm_name = arm_config['name']
-            port = arm_config['port']
-            motors = arm_config['motors']
-            self.get_logger().info(f'Initializing follower arm {arm_name} on port {port}')
+        robot_config = KochRobotConfig(
+            leader_arms={"left": leader_configs[0], "right": leader_configs[1]},
+            follower_arms={"left": follower_configs[0], "right": follower_configs[1]},
+            cameras={},
+        )
+        robot = ManipulatorRobot(robot_config)
+        robot.connect()
+        return robot
 
-            self.follower_arms[arm_name] = DynamixelMotorsBus(
-                port=port,
-                motors={name: tuple(spec) for name, spec in motors.items()},
-            )
+    def sync_positions(self):
+        # 讀取 leader 端的關節位置
+        left_leader_pos_deg = self.robot.leader_arms["left"].read("Present_Position")
+        right_leader_pos_deg = self.robot.leader_arms["right"].read("Present_Position")
 
-            # Create publisher and subscriber for follower arm
-            joint_state_topic = f'{arm_name}/joint_states'
-            joint_state_control_topic = f'{arm_name}/joint_states_control'
-            self.joint_state_publishers[arm_name] = self.create_publisher(JointState, joint_state_topic, 10)
-            self.joint_state_subscribers[arm_name] = self.create_subscription(
-                JointState, joint_state_control_topic, 
-                lambda msg, arm_name=arm_name: self.cb_joint_state(msg, arm_name),
-                10
-            )
+        # 將 leader 端的位置同步到 follower
+        self.robot.follower_arms["left"].write("Goal_Position", left_leader_pos_deg)
+        self.robot.follower_arms["right"].write("Goal_Position", right_leader_pos_deg)
+    
 
-        self.get_logger().info('Leader and Follower arms initialized')
-        self.get_logger().info(f'Leader Arms: {self.leader_arms}')
-        self.get_logger().info(f'Follower Arms: {self.follower_arms}')
+    def publish_all_joint_states(self):
+        # 讀取 leader 端的關節位置
+        left_leader_pos_deg = self.robot.leader_arms["left"].read("Present_Position")
+        right_leader_pos_deg = self.robot.leader_arms["right"].read("Present_Position")
 
-        try:
-            self.robot = ManipulatorRobot(
-                robot_type="koch",
-                leader_arms=self.leader_arms,
-                follower_arms=self.follower_arms,
-                calibration_dir="/home/hrc/koch_robot_arm/calibration/koch",
-            )
-            self.robot.connect()
-            self.get_logger().info('\033[92mRobot successfully connected\033[0m')
-        except Exception as e:
-            self.get_logger().error(f'\033[93mError during robot initialization or connection: {e}\033[0m')
+        # 讀取 follower 端的關節位置
+        left_follower_pos_deg = self.robot.follower_arms["left"].read("Present_Position")
+        right_follower_pos_deg = self.robot.follower_arms["right"].read("Present_Position")
+        
+        # 將角度轉換為弧度
+        left_leader_pos_rad = np.radians(left_leader_pos_deg)
+        right_leader_pos_rad = np.radians(right_leader_pos_deg)
+        left_follower_pos_rad = np.radians(left_follower_pos_deg)
+        right_follower_pos_rad = np.radians(right_follower_pos_deg)
 
-        # Timer to publish at 50 Hz
-        self.timer = self.create_timer(0.02, self.publish_joint_states)
-
-    def publish_joint_states(self):
-        # Publish leader arm joint states
-        for arm_name, arm in self.robot.leader_arms.items():
-            try:
-                pos_deg = np.array(arm.read("Present_Position"))
-                pos_rad = np.radians(pos_deg)
-
-                joint_state_msg = JointState()
-                joint_state_msg.header.stamp = self.get_clock().now().to_msg()
-                joint_state_msg.name = [f"{arm_name}_{joint}" for joint in arm.motors.keys()]
-                joint_state_msg.position = pos_rad.tolist()
-
-                self.joint_state_publishers[arm_name].publish(joint_state_msg)
-            except:
-                self.get_logger().warning(f'\033[93m Unable to read position data of leader.\033[0m')
-
-        # Publish follower arm joint states
-        for arm_name, arm in self.robot.follower_arms.items():
-            try:
-                pos_deg = np.array(arm.read("Present_Position"))
-                pos_rad = np.radians(pos_deg)
-
-                joint_state_msg = JointState()
-                joint_state_msg.header.stamp = self.get_clock().now().to_msg()
-                joint_state_msg.name = [f"{arm_name}_{joint}" for joint in arm.motors.keys()]
-                joint_state_msg.position = pos_rad.tolist()
-
-                self.joint_state_publishers[arm_name].publish(joint_state_msg)
-            except:
-                self.get_logger().warning(f'\033[93m Unable to read position data of follower.\033[0m')
+        # 發布四個 JointState
+        self.publish_joint_state(self.left_leader_pub, "left_leader_joint", left_leader_pos_rad)
+        self.publish_joint_state(self.right_leader_pub, "right_leader_joint", right_leader_pos_rad)
+        self.publish_joint_state(self.left_follower_pub, "left_follower_joint", left_follower_pos_rad)
+        self.publish_joint_state(self.right_follower_pub, "right_follower_joint", right_follower_pos_rad)
 
 
-    def cb_joint_state(self, msg, arm_name):
-        # Callback for follower arm joint states (subscribe)
-        unity_data_rad = np.array(msg.position)
-        unity_data_deg = np.degrees(unity_data_rad)
+    def publish_joint_state(self, publisher, joint_name, position):
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = [joint_name]
+        msg.position = position.tolist()
+        msg.velocity = []
+        msg.effort = []
+        publisher.publish(msg)
 
-        # Write the target position to the specified arm
-        self.robot.follower_arms[arm_name].write("Goal_Position", unity_data_deg)
+    def shutdown(self):
+        self.get_logger().info("Shutting down Koch Robot Node...")
+        self.robot.disconnect()
 
-    #override the distory_node function of ros2 for disconnect robot first
-    def destroy_node(self):
-        #1. Disable torque on all arms before disconnecting
-        self.get_logger().info('Disabling torque on all arms...')
-        if hasattr(self, 'follower_arms') and self.follower_arms:
-            for arm_name, arm in self.follower_arms.items():
-                try:
-                    for motor_name in arm.motors.keys():
-                        arm.write("Torque_Enable", 0, motor_name)  # Disable torque
-                    self.get_logger().info(f'Torque disabled for arm {arm_name}.')
-                except Exception as e:
-                    self.get_logger().error(f'\033[91mError disabling torque for arm {arm_name}: {e}\033[0m')
-                    
-        #2. Disconnect the robot
-        self.get_logger().info('Shutting down the node and disconnecting the robot...')
-        if hasattr(self, 'robot') and self.robot:
-            try:
-                self.robot.disconnect()
-                self.get_logger().info('Robot successfully disconnected.')
-            except Exception as e:
-                self.get_logger().error(f'\033[91mError disconnecting robot: {e}\033[0m')
-        super().destroy_node()  # Call parent class destroy_node()
 
-def main(args=None):
-    rclpy.init(args=args)
-    motor_controller_node = KochLeaderFollower()
+def main():
+    rclpy.init()
+    node = KochRobotNode()
     try:
-        rclpy.spin(motor_controller_node)
+        rclpy.spin(node)
     except KeyboardInterrupt:
-        motor_controller_node.destroy_node()
-        motor_controller_node.get_logger().info("Keyboard Interrupt (Ctrl+C) received, shutting down.")
+        node.shutdown()
     finally:
+        node.destroy_node()
         rclpy.shutdown()
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     main()

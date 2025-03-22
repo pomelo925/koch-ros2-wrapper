@@ -1,0 +1,27 @@
+record_settings:
+  record_time_s: 60
+  bags_folder_path: "/path/to/bags"
+  message_filter_enabled: false
+
+topics:
+  arms:
+    - "/left_follower/joint_states"
+    - "/right_follower/joint_states"
+    - "/left_leader/joint_states"
+    - "/right_leader/joint_states"
+
+  cams:
+    - "/cam_top/camera/color/image_raw/compressed"
+    - "/cam_top/camera/color/camera_info"
+
+    - "/cam_left/camera/color/image_raw/compressed"
+    - "/cam_left/camera/color/camera_info"
+
+    - "/cam_right/camera/color/image_raw/compressed"
+    - "/cam_right/camera/color/camera_info"
+
+    - "/cam_far/camera/color/image_raw/compressed"
+    - "/cam_far/camera/color/camera_info"
+
+    - "/cam_first/camera/color/image_raw/compressed"
+    - "/cam_first/camera/color/camera_info"
